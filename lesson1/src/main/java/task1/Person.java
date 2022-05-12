@@ -11,7 +11,7 @@ public class Person {
     private int age;
     private String gender;
 
-    public Person(Builder builder) {
+    private Person(Builder builder) {
         this.firstName = builder.firstName;
         this.lastName = builder.lastName;
         this.middleName = builder.middleName;
