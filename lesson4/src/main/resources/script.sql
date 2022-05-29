@@ -89,22 +89,16 @@ FROM timetable as timetable1
          cross join
      timetable timetable2
          on
-         true and
-         timetable1.id < timetable2.id and
-         (
-         (timetable1.start_time <= timetable2.start_time and timetable1.end_time >= timetable2.end_time) or
-         (timetable1.start_time <= timetable2.start_time and timetable1.end_time >= timetable2.start_time) or
-         (timetable1.start_time >= timetable2.start_time and timetable1.start_time <= timetable2.end_time) or
-         (timetable1.start_time >= timetable2.start_time and timetable1.end_time <= timetable2.end_time)
-         )
+         timetable1.id <> timetable2.id and
+         timetable1.start_time <= timetable2.start_time and timetable1.end_time > timetable2.start_time
          left join
      movies as movie1
      on
-         timetable1.movie_id = movie1.id
+             timetable1.movie_id = movie1.id
          left join
      movies as movie2
      on
-         timetable2.movie_id = movie2.id
+             timetable2.movie_id = movie2.id
 ORDER BY timetable1.start_time;
 
 /* 2. Сеансы, между которыми есть более 30 минут перерыва */
@@ -146,15 +140,15 @@ FROM tt_timeslots_with_latest_prev_slot as timetable2
          LEFT JOIN
      timetable AS timetable1
      ON
-         timetable2.prev_timeslot_end_time = timetable1.end_time
+             timetable2.prev_timeslot_end_time = timetable1.end_time
          LEFT JOIN
      movies as movie1
      ON
-         timetable1.movie_id = movie1.id
+             timetable1.movie_id = movie1.id
          LEFT JOIN
      movies as movie2
      ON
-         timetable2.movie_id = movie2.id;
+             timetable2.movie_id = movie2.id;
 
 /* 3. Список фильмов, для каждого — с указанием общего числа посетителей за все время, среднего числа зрителей за сеанс и общей суммы
  сборов по каждому фильму (отсортировать по убыванию прибыли). Внизу таблицы должна быть строчка «итого», содержащая данные по всем фильмам сразу */
@@ -191,7 +185,7 @@ GROUP BY
     movie_id,
     movie_name
 ORDER BY
-    sum (sum) DESC;
+    sum DESC;
 DROP TABLE IF EXISTS tt_2_total;
 CREATE
 TEMPORARY TABLE tt_2_total
@@ -232,18 +226,10 @@ FROM sales
          LEFT JOIN
      timetable as timetable
      ON
-         sales.timeslot_id = timetable.id
+             sales.timeslot_id = timetable.id
 GROUP BY CASE
              WHEN (HOUR(timetable.start_time) >= 9 AND HOUR (timetable.start_time) < 15) THEN '9:00:00 - 15:00:00'
              WHEN (HOUR(timetable.start_time) >= 15 AND HOUR (timetable.start_time) < 18) THEN '15:00:00 - 18:00:00'
              WHEN (HOUR(timetable.start_time) >= 18 AND HOUR (timetable.start_time) < 21) THEN '18:00:00 - 21:00:00'
              WHEN (HOUR(timetable.start_time) > 21) THEN '21:00:00 - 00:00:00'
              END
-
-
-
-
-
-
-
-
