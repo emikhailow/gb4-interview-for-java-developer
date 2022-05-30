@@ -28,7 +28,6 @@ CREATE TABLE timetable
     id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
     movie_id   INT UNSIGNED NOT NULL,
     start_time DATETIME NOT NULL,
-    end_time   DATETIME NOT NULL,
     price      DECIMAL NULL DEFAULT 0,
     PRIMARY KEY (id),
     UNIQUE INDEX id_UNIQUE (id ASC) VISIBLE,
@@ -38,13 +37,13 @@ CREATE TABLE timetable
         ON UPDATE NO ACTION
 );
 
-INSERT INTO timetable (movie_id, start_time, end_time, price)
-VALUES (1, '2022-05-19 09:00:00', '2022-05-19 10:30:00', 300),
-       (1, '2022-05-19 11:00:00', '2022-05-19 12:30:00', 250),
-       (1, '2022-05-19 10:00:00', '2022-05-19 11:30:00', 400),
-       (3, '2022-05-19 10:15:00', '2022-05-19 10:45:00', 300),
-       (3, '2022-05-19 19:00:00', '2022-05-19 19:30:00', 270),
-       (4, '2022-05-22 19:00:00', '2022-05-22 20:00:00', 220);
+INSERT INTO timetable (movie_id, start_time, price)
+VALUES (1, '2022-05-19 09:00:00', 300),
+       (1, '2022-05-19 11:00:00', 250),
+       (1, '2022-05-19 10:00:00', 400),
+       (3, '2022-05-19 10:15:00', 300),
+       (3, '2022-05-19 19:00:00', 270),
+       (4, '2022-05-22 19:00:00', 220);
 
 CREATE TABLE sales
 (
@@ -76,30 +75,33 @@ VALUES (1, 2, 300, 600),
        (6, 10, 220, 2200);
 
 /* 1. Сеансы с пересекающимся расписанием */
-SELECT #timetable1.id                                                    as id1,
-       movie1.name                                                       as "Movie 1",
-       timetable1.start_time                                             as "Start time",
-       #timetable1.end_time                                              as end_time1,
-       TIMESTAMPDIFF(MINUTE, timetable1.start_time, timetable1.end_time) as "Duration",
-       #timetable2.id                                                    as id2,
-       movie2.name                                                       as "Movie 2",
-       timetable2.start_time                                             as "Start time",
-       #timetable2.end_time                                              as end_time2,
-       TIMESTAMPDIFF(MINUTE, timetable2.start_time, timetable2.end_time) as "Duration"
+SELECT #timetable1.id        as id1,
+       movie1.name           as "Movie 1",
+       timetable1.start_time as "Start time",
+       #timetable1.end_time  as end_time1,
+       movie1.duration       as "Duration",
+       #timetable2.id        as id2,
+       movie2.name           as "Movie 2",
+       timetable2.start_time as "Start time",
+       #timetable2.end_time  as end_time2,
+       movie2.duration       as "Duration"
 FROM timetable as timetable1
-         cross join
-     timetable timetable2
-         on
-         timetable1.id <> timetable2.id and
-         timetable1.start_time <= timetable2.start_time and timetable1.end_time > timetable2.start_time
          left join
      movies as movie1
      on
          timetable1.movie_id = movie1.id
+         inner join
+     timetable timetable2
+     on
+                 timetable1.id <> timetable2.id and
+                 timetable1.start_time <= timetable2.start_time and
+                 date_add(timetable1.start_time, interval movie1.duration MINUTE) > timetable2.start_time
+
          left join
      movies as movie2
      on
          timetable2.movie_id = movie2.id
+
 ORDER BY timetable1.start_time;
 
 /* 2. Сеансы, между которыми есть более 30 минут перерыва */
@@ -107,49 +109,63 @@ ORDER BY timetable1.start_time;
 DROP TABLE IF EXISTS tt_timeslots_with_latest_prev_slot;
 CREATE
 TEMPORARY TABLE tt_timeslots_with_latest_prev_slot
-SELECT timetable2.id            as id,
-       timetable2.start_time    as start_time,
-       timetable2.end_time      as end_time,
-       timetable2.movie_id      as movie_id,
-       MAX(timetable1.end_time) as prev_timeslot_end_time
+SELECT timetable2.id                                                         as id,
+       timetable2.start_time                                                 as start_time,
+       date_add(timetable2.start_time, INTERVAL movie2.duration MINUTE)      as end_time,
+       timetable2.movie_id                                                   as movie_id,
+       MAX(date_add(timetable1.start_time, INTERVAL movie1.duration MINUTE)) as prev_timeslot_end_time
 FROM timetable as timetable1
-         cross join
+         left join
+     movies as movie1
+     on
+         timetable1.movie_id = movie1.id
+         inner join
      timetable timetable2
-         on
-         true and
-         timetable1.id < timetable2.id and
-         timetable1.end_time < timetable2.start_time
-WHERE TIMESTAMPDIFF(SECOND, timetable1.end_time, timetable2.start_time) > 1800
+     on
+         (true and
+          timetable1.id < timetable2.id and
+          date_add(timetable1.start_time, INTERVAL movie1.duration MINUTE) < timetable2.start_time)
+         left join
+     movies as movie2
+     on
+         timetable2.movie_id = movie2.id
+
+
+WHERE TIMESTAMPDIFF(SECOND, date_add(timetable1.start_time, INTERVAL movie1.duration MINUTE), timetable2.start_time) >
+      1800
 GROUP BY timetable2.id,
          timetable2.start_time,
-         timetable2.end_time,
+         date_add(timetable2.start_time, INTERVAL movie2.duration MINUTE),
          timetable2.movie_id;
 
 /* Соединяю предыдущую таблицу со всем расписанием по дате конца предыдущего сеанса, чтобы получить id предыдущего сеанса */
-SELECT #timetable1.id                                                     as prev_timeslot_id,
-       movie1.name                                                        as "Movie 1",
-       timetable1.start_time                                              as "Start time",
-       #timetable1.end_time                                               as prev_timeslot_end_time,
-       TIMESTAMPDIFF(MINUTE, timetable1.start_time, timetable1.end_time)  as "Duration",
-       #timetable2.id                                                     as id,
-       movie2.name                                                        as "Movie 2",
-       timetable2.start_time                                              as "Start time",
-       #timetable2.end_time                                               as end_time,
-       #TIMESTAMPDIFF(MINUTE, timetable2.start_time, timetable2.end_time) as "Duration",
-       TIMESTAMPDIFF(MINUTE, timetable1.end_time, timetable2.start_time)  as "Gap"
-FROM tt_timeslots_with_latest_prev_slot as timetable2
-         LEFT JOIN
-     timetable AS timetable1
-     ON
-         timetable2.prev_timeslot_end_time = timetable1.end_time
-         LEFT JOIN
-     movies as movie1
+SELECT #timetable1.id                                                                                                 as prev_timeslot_id,
+       movie1.name                                                                                                    as "Movie 1",
+       timetable1.start_time                                                                                          as "Start time",
+       #timetable1.end_time                                                                                           as prev_timeslot_end_time,
+       TIMESTAMPDIFF(MINUTE, timetable1.start_time,
+                             DATE_ADD(timetable1.start_time, INTERVAL movie1.duration MINUTE))                        as "Duration",
+       #timetable2.id                                                                                                 as id,
+       movie2.name                                                                                                    as "Movie 2",
+       timetable2.start_time                                                                                          as "Start time",
+       #timetable2.end_time                                                                                           as end_time,
+       #TIMESTAMPDIFF(MINUTE, timetable2.start_time, timetable2.end_time)                                             as "Duration",
+       TIMESTAMPDIFF(MINUTE, DATE_ADD(timetable1.start_time, INTERVAL movie1.duration MINUTE),
+                             timetable2.start_time)                                                                   as "Gap"
+FROM movies as movie1
+         INNER JOIN
+     timetable as timetable1
      ON
          timetable1.movie_id = movie1.id
-         LEFT JOIN
+         INNER JOIN
+     tt_timeslots_with_latest_prev_slot as timetable2
+     ON
+             timetable2.prev_timeslot_end_time = DATE_ADD(timetable1.start_time, INTERVAL movie1.duration MINUTE)
+         INNER JOIN
      movies as movie2
      ON
          timetable2.movie_id = movie2.id;
+
 
 /* 3. Список фильмов, для каждого — с указанием общего числа посетителей за все время, среднего числа зрителей за сеанс и общей суммы
  сборов по каждому фильму (отсортировать по убыванию прибыли). Внизу таблицы должна быть строчка «итого», содержащая данные по всем фильмам сразу */
